@@ -14,7 +14,7 @@ from smallworld import get_smallworld_graph
 from smallworld.draw import draw_network
 from tqdm import tqdm
 
-start = time.time()
+time0 = time.time()
 # イジケビッチニューロンの定義
 eqs = Equations(
     """
@@ -41,7 +41,7 @@ Apre = 0.1 * volt
 Apost = -0.12 * volt
 
 n = 1000  # number of neurons in one group
-neuron_group_count = 100
+neuron_group_count = 10
 R = 0.8  # ratio about excitory-inhibitory neurons
 
 # 各ニューロングループの生成
@@ -123,8 +123,8 @@ for i in tqdm(range(neuron_group_count)):
 
     groups.append((group, Pe, Pi, Ce, Ci))
 
-elapsed_time = time.time() - start
-print("グループ内の配線をするまでにかかった時間", elapsed_time, "sec")
+time1 = time.time()
+print("グループ内の配線をするまでにかかった時間",time1 - time0 , "sec")
 # WSモデルに従い、各グループの興奮性ニューロンから隣接する6つのノードへの接続と再配線を行う
 
 # define network parameters
@@ -162,35 +162,31 @@ for edge in tqdm(list(G.edges())):
     # 各興奮性ニューロンが、他のニューロングループと三本の接続を持つので、接続する確率は3/1000
     Ce.connect(p=0.003)
     Ce.w = 6.0 * volt
-    Ce.delay = random.uniform(10, 30)
+    Ce.delay = random.uniform(10, 30) * ms
 
-elapsed_time = time.time() - start
-print("グループ外の配線をするまでにかかった時間", elapsed_time, "sec")
+time2 = time.time()
+print("グループ外の配線をするまでにかかった時間", time2 - time1, "sec")
 
 # とりあええず1000秒動かす
 run_time_ms = 1000 * 1000
 
 # statemonitorを1つだけにするver
-value_interval_ms = 1
-time_count = int(run_time_ms / value_interval_ms)
-
-defaultclock.dt = value_interval_ms * ms
 run(run_time_ms * ms)
 
-elapsed_time = time.time() - start
-print("最初の千秒までにかかった時間", elapsed_time, "sec")
+time3 = time.time()
+print("最初の千秒までにかかった時間", time3 - time2, "sec")
 
 # STDPの設定を外す
 for group in groups:
-    gruop[3].pre.code = "v_post +=w"
-    gruop[4].pre.code = "v_post +=w"
+    group[3].pre.code = "v_post +=w"
+    group[4].pre.code = "v_post +=w"
 
 # 100秒動かす
 run_time_ms = 100 * 1000
 run(run_time_ms * ms)
 
-elapsed_time = time.time() - start
-print("次の100秒までにかかった時間", elapsed_time, "sec")
+time4 = time.time()
+print("次の100秒までにかかった時間", time4 - time3, "sec")
 
 # inputの設定を外す
 new_I = array([0.0 for i in range(n * neuron_group_count)])
@@ -198,11 +194,14 @@ P.I = new_I * volt / second
 
 # 100秒動かす
 run_time_ms = 100 * 1000
+value_interval_ms = 1000
+time_count = int(run_time_ms / value_interval_ms)
+defaultclock.dt = value_interval_ms * ms
 V = StateMonitor(P, "v", record=True)
 run(run_time_ms * ms)
 
-elapsed_time = time.time() - start
-print("次の100秒までにかかった時間", elapsed_time, "sec")
+time5 = time.time()
+print("次の100秒までにかかった時間", time5 - time4, "sec")
 
 
 lap = defaultdict(list)
@@ -218,17 +217,21 @@ for i in tqdm(range(neuron_group_count)):
         mean = sum(data) / len(data)
         lap[i].append(mean)
 
-elapsed_time = time.time() - start
-print("lap計算までにかかった時間", elapsed_time, "sec")
+time6 = time.time()
+print("lap計算までにかかった時間", time6 - time5, "sec")
+
+pd.DataFrame(lap['0']).to_csv("test_before.csv", index=False)
 
 
 # 全てのニューロングループに対してMSEの計算を行う
 results = []
 for i in range(neuron_group_count):
-    result = nk.entropy_multiscale(signal=np.array(lap[i]), scale=40, dimension=1)
+    result = nk.entropy_multiscale(signal=np.array(lap[i]), scale='default', dimension=1)
     results.append(result[1]["Values"])
 
-elapsed_time = time.time() - start
-print("mse計算までにかかった時間", elapsed_time, "sec")
+time7 = time.time()
+print("mse計算までにかかった時間", time7 - time6, "sec")
 
 pd.DataFrame(results).to_csv("test.csv", index=False)
+time8 = time.time()
+print("全体の処理時間", time8 - time0, "sec")
