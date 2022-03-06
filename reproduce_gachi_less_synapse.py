@@ -13,6 +13,7 @@ from smallworld import get_smallworld_graph
 from smallworld.draw import draw_network
 from tqdm import tqdm
 import pickle
+import os
 
 import random
 
@@ -25,6 +26,11 @@ first_sim_ms = 1000 * 1000
 second_sim_ms = 100 * 1000
 third_sim_ms = 100 * 1000
 
+n = 1000  # number of neurons in one group
+neuron_group_count = 100
+
+ws_model_beta = 1.0
+timestamp = datetime.datetime.now().strftime("%Y–%m–%d_%H%M")
 
 # イジケビッチニューロンの定義
 eqs = Equations(
@@ -53,8 +59,6 @@ wmax = 10  # 本当に(ry
 Apre = 0.1  # 本当にvolt?
 Apost = -0.12  # 本当にvolt?
 
-n = 1000  # number of neurons in one group
-neuron_group_count = 100
 R = 0.8  # ratio about excitory-inhibitory neurons
 
 # 各ニューロングループの生成
@@ -105,19 +109,46 @@ C = Synapses(
 
 # 興奮性ニューロン to 同じニューロングループ内の100個のニューロンへのランダム接続
 C.connect("is_excitatory_pre and group_pre == group_post", p=0.1)
+C[
+    "is_excitatory_pre"
+].synapses.pre.code = """
+        v_post += w * mV
+        apre += Apre
+        w = clip(w+apost, 0, wmax)
+        """
+C[
+    "is_excitatory_pre"
+].synapses.post.code = """
+        apost += Apost
+        w = clip(w+apre, 0, wmax)
+        """
+
 # 抑制性ニューロン　to 同じニューロングループ内の100個の興奮性ニューロンへのランダム接続
 C.connect("not is_excitatory_pre and is_excitatory_post and group_pre == group_post", p=0.125)
+C[
+    "not is_excitatory_pre"
+].synapses.pre.code = """
+        v_post += w * mV
+        apre += Apre
+        w = clip(w+apost, -wmax, 0)
+        """
+C[
+    "not is_excitatory_pre"
+].synapses.post.code = """
+        apost += Apost
+        w = clip(w+apre, -wmax, 0)
+        """
+
 # WSモデルに従い、各グループの興奮性ニューロンから隣接する6つのノードへの接続と再配線を行う
 # define network parameters
 N = neuron_group_count
 k_over_2 = 3
 # k_over_2 = 1
-beta = 1.0
 label = r"$\beta=0$"
 
 focal_node = 0
 # generate small-world graphs and draw
-G = get_smallworld_graph(N, k_over_2, beta)
+G = get_smallworld_graph(N, k_over_2, ws_model_beta)
 inter_synapses = []
 
 for edge in tqdm(list(G.edges())):
@@ -180,13 +211,15 @@ print("次の100秒までにかかった時間", time5 - time4, "sec")
 device.build(directory="output", compile=True, run=True, debug=False)
 
 # wを保存
-with open("w.pkl", "wb") as f:
+savedir = f"./results/pickle/{timestamp}"
+os.makedirs(savedir, exist_ok=True)
+with open(f"{savedir}/w_{ws_model_beta}.pkl", "wb") as f:
     pickle.dump(np.array(C.w), f)
-
+    
 # スパイクを保存
 spikes = S.spike_trains()
-with open('spikes.pkl','wb') as f:
-    pickle.dump(spikes,f)
+with open(f"{savedir}/spikes_{ws_model_beta}.pkl", "wb") as f:
+    pickle.dump(spikes, f)
 
 lap = defaultdict(list)
 for i in tqdm(range(neuron_group_count)):
