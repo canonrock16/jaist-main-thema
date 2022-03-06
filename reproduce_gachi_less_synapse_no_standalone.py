@@ -4,7 +4,7 @@
 import time
 from collections import defaultdict
 
-# import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 import neurokit2 as nk
 import numpy as np
 import pandas as pd
@@ -12,13 +12,12 @@ from brian2 import *
 from smallworld import get_smallworld_graph
 from smallworld.draw import draw_network
 from tqdm import tqdm
-import pickle
 
 import random
 
 # スタンドアローンモードへ
-set_device("cpp_standalone", build_on_run=False)
-prefs.devices.cpp_standalone.openmp_threads = 64
+# set_device("cpp_standalone", build_on_run=False)
+# prefs.devices.cpp_standalone.openmp_threads = 128
 
 time0 = time.time()
 first_sim_ms = 1000 * 1000
@@ -164,10 +163,8 @@ new_I = array([0.0 for i in range(n * neuron_group_count)])
 P.I = new_I * volt / second
 
 V = StateMonitor(P, "v", record=True)
-S = SpikeMonitor(P)
 
 net.add(V)
-net.add(S)
 
 # 100秒動かす
 net.run(third_sim_ms * ms, report="stdout")
@@ -177,16 +174,7 @@ time5 = time.time()
 print("次の100秒までにかかった時間", time5 - time4, "sec")
 
 # スタンドアローンモードへ
-device.build(directory="output", compile=True, run=True, debug=False)
-
-# wを保存
-with open("w.pkl", "wb") as f:
-    pickle.dump(np.array(C.w), f)
-
-# スパイクを保存
-spikes = S.spike_trains()
-with open('spikes.pkl','wb') as f:
-    pickle.dump(spikes,f)
+# device.build(directory="output", compile=True, run=True, debug=False)
 
 lap = defaultdict(list)
 for i in tqdm(range(neuron_group_count)):
