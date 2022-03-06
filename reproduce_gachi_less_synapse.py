@@ -20,6 +20,11 @@ set_device("cpp_standalone", build_on_run=False)
 prefs.devices.cpp_standalone.openmp_threads = 64
 
 time0 = time.time()
+first_sim_ms = 1000 * 1000
+second_sim_ms = 100 * 1000
+third_sim_ms = 100 * 1000
+
+
 # イジケビッチニューロンの定義
 eqs = Equations(
     """
@@ -30,6 +35,8 @@ a                                                : 1/second
 b                                                : 1/second
 c                                                : volt
 d                                                : volt/second
+group                                            : integer (constant)
+is_excitatory                                    : boolean (constant)
 """
 )
 
@@ -41,108 +48,69 @@ u = u + d
 
 taupre = taupost = 20 * ms
 # 論文の設定
-wmax = 10
-Apre = 0.1
-Apost = -0.12
+wmax = 10  # 本当に(ry
+Apre = 0.1  # 本当にvolt?
+Apost = -0.12  # 本当にvolt?
 
 n = 1000  # number of neurons in one group
 neuron_group_count = 100
 R = 0.8  # ratio about excitory-inhibitory neurons
-first_sim_ms = 1000 * 1000
-second_sim_ms = 100 * 1000
-third_sim_ms = 100 * 1000
 
 # 各ニューロングループの生成
 # 30mvでスパイクが発生する。数値積分法はeuler
 P = NeuronGroup(n * neuron_group_count, model=eqs, threshold="v>30*mvolt", reset=reset, method="euler")
-re = np.random.random(int(n * R))
-ri = np.random.random(round(n * (1 - R)))
+re = np.random.random(int(n * neuron_group_count))
+ri = np.random.random(round(n * neuron_group_count))
 
-groups = []
-# サブグループに分ける
-for i in tqdm(range(neuron_group_count)):
-    start = int(i * n)
-    end = int((i + 1) * n)
+# TODO:exiteとinhibitのパラメータを各々変更する
+P.group = "i // n"  # 0 for the first 1000 neurons, then 1 for the next 1000 neurons, etc.
+P.is_excitatory = "(i % n) < int(R*n)"
 
-    group = P[start:end]
-    # 興奮性
-    Pe = group[: int(n * R)]
-    # 抑制性
-    Pi = group[int(n * R) :]
+# excitatory connections
+P.a = 0.02 / msecond  # 正
+P.b = 0.2 / msecond  # 正
+P.c = (15 * re ** 2 - 65) * mvolt
+P.d = (-6 * re ** 2 + 8) * mvolt / msecond
+P.I = 20 * mvolt / msecond  # 他が全部mVなのにこれだけvoltはおかしい /msecondじゃないと頻度が低すぎる
 
-    # 各種設定
-    Pe.a = 0.02 / msecond  # 正
-    Pe.b = 0.2 / msecond  # 正
-    Pe.c = (15 * re ** 2 - 65) * mvolt
-    Pe.d = (-6 * re ** 2 + 8) * mvolt / msecond
-    Pe.I = 20 * mvolt / msecond  # 他が全部mVなのにこれだけvoltはおかしい /msecondじゃないと頻度が低すぎる
-    # Pe.u = Pe.b * Pe.c
-    # Pe.v = Pe.c
+# inhibitory connections
+P.a["not is_excitatory"] = 0.1 * 1 / msecond
+P.b["not is_excitatory"] = 0.2 * 1/msecond
+P.c["not is_excitatory"] =  - 65*mvolt
+P.d["not is_excitatory"] = 2 * mvolt / msecond
+P.I["not is_excitatory"] = 20 * mvolt / msecond
 
-    Pi.a = (0.08 * ri ** 2 + 0.02) * 1 / msecond  # 正
-    Pi.b = (-0.05 * ri ** 2 + 0.25) * 1 / msecond  # 正
-    Pi.c = -65 * mvolt
-    Pi.d = 2 * mvolt / msecond
-    Pi.I = 20 * mvolt / msecond
-    # Pi.u = Pi.b * Pi.c
-    # Pi.v = Pi.c
 
-    # グループ内の接続
-    # 興奮性ニューロン to 同じニューロングループ内の100個のニューロンへのランダム接続
-    Ce = Synapses(
-        Pe,
-        group,
-        """
+
+# TODO:exiteとinhibitでclipの所を変える
+C = Synapses(
+    P,
+    P,
+    """
         w : 1
         dapre/dt = -apre/taupre : 1 (event-driven)
         dapost/dt = -apost/taupost : 1 (event-driven)
         """,
-        on_pre="""
+    on_pre="""
         v_post += w * mV
         apre += Apre
-        w = clip(w+apost, 0, wmax)
+        w = w+apost
         """,
-        on_post="""
+    on_post="""
         apost += Apost
-        w = clip(w+apre, 0, wmax)
+        w = w+apre
         """,
-    )
-    Ce.connect(p=0.1)
-    Ce.w = 6.0
-    Ce.delay = round(random.uniform(0, 20), 2) * ms
-    # 抑制性ニューロン　to 同じニューロングループ内の100個の興奮性ニューロンへのランダム接続
-    Ci = Synapses(
-        Pi,
-        Pe,
-        """
-        w : 1
-        dapre/dt = -apre/taupre : 1 (event-driven)
-        dapost/dt = -apost/taupost : 1 (event-driven)
-        """,
-        on_pre="""
-        v_post += w * mV
-        apre += Apre
-        w = clip(w+apost, -wmax, 0)
-        """,
-        on_post="""
-        apost += Apost
-        w = clip(w+apre, -wmax, 0)
-        """,
-    )
-    Ci.connect(p=0.125)
-    Ci.w = -5.0
-    Ci.delay = 1 * ms
+)
 
-    groups.append((group, Pe, Pi, Ce, Ci))
-
-time1 = time.time()
-print("グループ内の配線をするまでにかかった時間", time1 - time0, "sec")
-
+# 興奮性ニューロン to 同じニューロングループ内の100個のニューロンへのランダム接続
+C.connect("is_excitatory_pre and group_pre == group_post", p=0.1)
+# 抑制性ニューロン　to 同じニューロングループ内の100個の興奮性ニューロンへのランダム接続
+C.connect("not is_excitatory_pre and is_excitatory_post and group_pre == group_post", p=0.125)
 # WSモデルに従い、各グループの興奮性ニューロンから隣接する6つのノードへの接続と再配線を行う
-
 # define network parameters
 N = neuron_group_count
 k_over_2 = 3
+# k_over_2 = 1
 beta = 1.0
 label = r"$\beta=0$"
 
@@ -152,39 +120,24 @@ G = get_smallworld_graph(N, k_over_2, beta)
 inter_synapses = []
 
 for edge in tqdm(list(G.edges())):
-    source_group_Pe = groups[edge[0]][1]
-    target_group = groups[edge[1]][0]
-
-    Ce = Synapses(
-        source_group_Pe,
-        target_group,
-        """
-        w : 1
-        dapre/dt = -apre/taupre : 1 (event-driven)
-        dapost/dt = -apost/taupost : 1 (event-driven)
-        """,
-        on_pre="""
-        v_post += w *mV
-        apre += Apre
-        w = clip(w+apost, 0, wmax)
-        """,
-        on_post="""
-        apost += Apost
-        w = clip(w+apre, 0, wmax)
-        """,
-    )
+    source_group = edge[0]
+    target_group = edge[1]
     # 各興奮性ニューロンが、他のニューロングループと三本の接続を持つので、接続する確率は3/1000
-    Ce.connect(p=0.003)
-    Ce.w = 6.0
-    Ce.delay = round(random.uniform(10, 30), 2) * ms
-    inter_synapses.append(Ce)
+    C.connect(f"is_excitatory_pre and group_pre == {source_group} and group_post == {target_group}",p=0.003)
+
+# C.delay = "int(rand*2000)/100*ms"
+C.delay = "20*ms"
+C.w = 6.0
+
+C.w["not is_excitatory_pre"] = -5.0
+C.delay["not is_excitatory_pre"] = 1 * ms
+
+time1 = time.time()
+print("配線をするまでにかかった時間", time1 - time0, "sec")
+
+net = Network(P,C)
 
 time2 = time.time()
-print("グループ外の配線をするまでにかかった時間", time2 - time1, "sec")
-
-
-net = Network([group[3] for group in groups], [group[4] for group in groups], inter_synapses, P)
-
 # とりあええず1000秒動かす
 value_interval_ms = 1
 defaultclock.dt = value_interval_ms * ms
@@ -195,16 +148,9 @@ print("最初の千秒までにかかった時間", time3 - time2, "sec")
 
 
 # STDPの設定を外す
-for group in groups:
-    group[3].pre.code = "v_post +=w* mV"
-    group[3].post.code = ""
-    group[4].pre.code = "v_post +=w *mV"
-    group[4].post.code = ""
-
-for inter in inter_synapses:
-    inter.pre.code = "v_post +=w *mV"
-    inter.post.code = ""
-
+C.pre.code = "v_post +=w* mV"
+C.post.code = ""
+    
 # 100秒動かす
 net.run(second_sim_ms * ms, report="stdout")
 
@@ -217,20 +163,8 @@ new_I = array([0.0 for i in range(n * neuron_group_count)])
 P.I = new_I * volt / second
 
 V = StateMonitor(P, "v", record=True)
-A = StateMonitor(P, "a", record=True)
-B = StateMonitor(P, "b", record=True)
-C = StateMonitor(P, "c", record=True)
-D = StateMonitor(P, "d", record=True)
-U = StateMonitor(P, "u", record=True)
-S = SpikeMonitor(P)
 
 net.add(V)
-net.add(A)
-net.add(B)
-net.add(C)
-net.add(D)
-net.add(U)
-net.add(S)
 
 # 100秒動かす
 net.run(third_sim_ms * ms, report="stdout")
@@ -240,7 +174,7 @@ time5 = time.time()
 print("次の100秒までにかかった時間", time5 - time4, "sec")
 
 # スタンドアローンモードへ
-device.build(directory="output", compile=True, run=False, debug=False)
+device.build(directory="output", compile=True, run=True, debug=False)
 
 lap = defaultdict(list)
 for i in tqdm(range(neuron_group_count)):
