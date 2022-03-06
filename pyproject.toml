@@ -1,35 +1,24 @@
 [tool.poetry]
-name = "distributed_processing"
+name = "jaist-main-thema"
 version = "0.1.0"
 description = ""
 authors = ["canonrock16 <canonrock0401@gmail.com>"]
 
 [tool.poetry.dependencies]
-python = "^3.9"
-
-# jupyterlab関連
-jupyterlab = "^3.2.0"
-jupyterlab-vim = "^0.14.2"
+python = "^3.8"
+Brian2 = "^2.5.0"
+smallworld = "^0.1.0"
+neurokit2 = "^0.1.7"
+tqdm = "^4.63.0"
+jupyterlab = "^3.3.0"
+jupyterlab-vim = "^0.14.5"
 lckr-jupyterlab-variableinspector = "^3.0.9"
 jupyterlab-code-formatter = "^1.4.10"
+black = "^22.1.0"
+isort = "^5.10.1"
+flake8 = "^4.0.1"
 
-# lint
-black = "^21.6b0"
-isort = "^5.8.0"
-flake8 = "^3.9.2"
-dask = {extras = ["complete"], version = "^2021.6.1"}
-tqdm = "^4.61.1"
-mypy = "^0.910"
-
-
-matplotlib = "^3.4.3"
-ipywidgets = "^7.6.5"
-Brian2 = "^2.4.2"
-Cython = "^0.29.24"
-smallworld = "^0.1.0"
-network = "^0.1"
-neurokit2 = "^0.1.5"
-
+[tool.poetry.dev-dependencies]
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
