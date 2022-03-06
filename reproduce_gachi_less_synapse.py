@@ -19,7 +19,7 @@ import random
 
 # スタンドアローンモードへ
 set_device("cpp_standalone", build_on_run=False)
-prefs.devices.cpp_standalone.openmp_threads = 64
+prefs.devices.cpp_standalone.openmp_threads = 128
 
 time0 = time.time()
 first_sim_ms = 1000 * 1000
@@ -88,56 +88,50 @@ P.I["not is_excitatory"] = 20 * mvolt / msecond
 
 
 # TODO:exiteとinhibitでclipの所を変える
-C = Synapses(
-    P,
-    P,
-    """
+Ce = Synapses(
+        P,
+        P,
+        """
         w : 1
         dapre/dt = -apre/taupre : 1 (event-driven)
         dapost/dt = -apost/taupost : 1 (event-driven)
         """,
-    on_pre="""
-        v_post += w * mV
-        apre += Apre
-        w = w+apost
-        """,
-    on_post="""
-        apost += Apost
-        w = w+apre
-        """,
-)
-
-# 興奮性ニューロン to 同じニューロングループ内の100個のニューロンへのランダム接続
-C.connect("is_excitatory_pre and group_pre == group_post", p=0.1)
-C[
-    "is_excitatory_pre"
-].synapses.pre.code = """
+        on_pre="""
         v_post += w * mV
         apre += Apre
         w = clip(w+apost, 0, wmax)
-        """
-C[
-    "is_excitatory_pre"
-].synapses.post.code = """
+        """,
+        on_post="""
         apost += Apost
         w = clip(w+apre, 0, wmax)
-        """
+        """,
+    )
 
-# 抑制性ニューロン　to 同じニューロングループ内の100個の興奮性ニューロンへのランダム接続
-C.connect("not is_excitatory_pre and is_excitatory_post and group_pre == group_post", p=0.125)
-C[
-    "not is_excitatory_pre"
-].synapses.pre.code = """
+Ci = Synapses(
+        P,
+        P,
+        """
+        w : 1
+        dapre/dt = -apre/taupre : 1 (event-driven)
+        dapost/dt = -apost/taupost : 1 (event-driven)
+        """,
+        on_pre="""
         v_post += w * mV
         apre += Apre
         w = clip(w+apost, -wmax, 0)
-        """
-C[
-    "not is_excitatory_pre"
-].synapses.post.code = """
+        """,
+        on_post="""
         apost += Apost
         w = clip(w+apre, -wmax, 0)
-        """
+        """,
+    )
+
+
+# 興奮性ニューロン to 同じニューロングループ内の100個のニューロンへのランダム接続
+Ce.connect("is_excitatory_pre and group_pre == group_post", p=0.1)
+
+# 抑制性ニューロン　to 同じニューロングループ内の100個の興奮性ニューロンへのランダム接続
+Ci.connect("not is_excitatory_pre and is_excitatory_post and group_pre == group_post", p=0.125)
 
 # WSモデルに従い、各グループの興奮性ニューロンから隣接する6つのノードへの接続と再配線を行う
 # define network parameters
@@ -155,19 +149,19 @@ for edge in tqdm(list(G.edges())):
     source_group = edge[0]
     target_group = edge[1]
     # 各興奮性ニューロンが、他のニューロングループと三本の接続を持つので、接続する確率は3/1000
-    C.connect(f"is_excitatory_pre and group_pre == {source_group} and group_post == {target_group}",p=0.003)
+    Ce.connect(f"is_excitatory_pre and group_pre == {source_group} and group_post == {target_group}",p=0.003)
 
 # C.delay = "int(rand*2000)/100*ms"
-C.delay = "20*ms"
-C.w = 6.0
+Ce.delay = "20*ms"
+Ci.delay["not is_excitatory_pre"] = 1 * ms
 
-C.w["not is_excitatory_pre"] = -5.0
-C.delay["not is_excitatory_pre"] = 1 * ms
+Ce.w = 6.0
+Ci.w["not is_excitatory_pre"] = -5.0
 
 time1 = time.time()
 print("配線をするまでにかかった時間", time1 - time0, "sec")
 
-net = Network(P,C)
+net = Network(P,Ce,Ci)
 
 time2 = time.time()
 # とりあええず1000秒動かす
@@ -180,8 +174,8 @@ print("最初の千秒までにかかった時間", time3 - time2, "sec")
 
 
 # STDPの設定を外す
-C.pre.code = "v_post +=w* mV"
-C.post.code = ""
+Ce.pre.code = "v_post +=w* mV"
+Ci.post.code = ""
     
 # 100秒動かす
 net.run(second_sim_ms * ms, report="stdout")
@@ -213,8 +207,11 @@ device.build(directory="output", compile=True, run=True, debug=False)
 # wを保存
 savedir = f"./results/pickle/{timestamp}"
 os.makedirs(savedir, exist_ok=True)
-with open(f"{savedir}/w_{ws_model_beta}.pkl", "wb") as f:
-    pickle.dump(np.array(C.w), f)
+with open(f"{savedir}/w_Ce_{ws_model_beta}.pkl", "wb") as f:
+    pickle.dump(np.array(Ce.w), f)
+with open(f"{savedir}/w_Ci_{ws_model_beta}.pkl", "wb") as f:
+    pickle.dump(np.array(Ci.w), f)
+
     
 # スパイクを保存
 spikes = S.spike_trains()
