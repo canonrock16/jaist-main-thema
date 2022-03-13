@@ -16,6 +16,10 @@ import pickle
 import os
 
 import random
+# HPCクラスタ上でのファイルアクセスの競合を避ける
+cache_dir = os.path.expanduser(f'~/.cython/brian-pid-{os.getpid()}')
+prefs.codegen.runtime.cython.cache_dir = cache_dir
+prefs.codegen.runtime.cython.multiprocess_safe = False
 
 # スタンドアローンモードへ
 set_device("cpp_standalone", build_on_run=False)
@@ -63,7 +67,7 @@ R = 0.8  # ratio about excitory-inhibitory neurons
 
 # 各ニューロングループの生成
 # 30mvでスパイクが発生する。数値積分法はeuler
-P = NeuronGroup(n * neuron_group_count, model=eqs, threshold="v=>30*mvolt", reset=reset, method="euler")
+P = NeuronGroup(n * neuron_group_count, model=eqs, threshold="v>=30*mvolt", reset=reset, method="euler")
 re = np.random.random(int(n * neuron_group_count))
 ri = np.random.random(round(n * neuron_group_count))
 
@@ -128,10 +132,12 @@ Ci = Synapses(
 
 
 # 興奮性ニューロン to 同じニューロングループ内の100個のニューロンへのランダム接続
-Ce.connect("is_excitatory_pre and group_pre == group_post", p=0.1)
+Ce.connect("is_excitatory_pre and group_pre == group_post", p=0.1) # 正
+Ce.delay["is_excitatory_pre and group_pre == group_post"] = "rand()*20*ms"
 
 # 抑制性ニューロン　to 同じニューロングループ内の100個の興奮性ニューロンへのランダム接続
 Ci.connect("not is_excitatory_pre and is_excitatory_post and group_pre == group_post", p=0.125)
+Ci.delay["not is_excitatory_pre"] = 1 * ms
 
 # WSモデルに従い、各グループの興奮性ニューロンから隣接する6つのノードへの接続と再配線を行う
 # define network parameters
@@ -149,11 +155,11 @@ for edge in tqdm(list(G.edges())):
     source_group = edge[0]
     target_group = edge[1]
     # 各興奮性ニューロンが、他のニューロングループと三本の接続を持つので、接続する確率は3/1000
-    Ce.connect(f"is_excitatory_pre and group_pre == {source_group} and group_post == {target_group}",p=0.003)
+    Ce.connect(f"is_excitatory_pre and group_pre == {source_group} and group_post == {target_group}", p=0.003) # 正
+    Ce.delay[f"is_excitatory_pre and group_pre == {source_group} and group_post == {target_group}"] ="rand()*30*ms"
+    Ce.delay[f"is_excitatory_pre and group_pre == {source_group} and group_post == {target_group} and delay<10*ms"] ="10*ms"
 
-Ce.delay = 'rand()*20*ms'
 seed()
-Ci.delay["not is_excitatory_pre"] = 1 * ms
 
 Ce.w = 6.0
 Ci.w["not is_excitatory_pre"] = -5.0
@@ -218,33 +224,8 @@ spikes = S.spike_trains()
 with open(f"{savedir}/spikes_{ws_model_beta}.pkl", "wb") as f:
     pickle.dump(spikes, f)
 
-lap = defaultdict(list)
-for i in tqdm(range(neuron_group_count)):
-    start = int(i * n)
-    end = int((i + 1) * n)
+# 膜電位を保存
+with open(f"{savedir}/v_{ws_model_beta}.pkl", "wb") as f:
+    pickle.dump(np.array(V.v), f)
 
-    group = V.v[start:end] / mV
-    # 興奮性
-    Pe = group[: int(n * R)]
-    lap[i] = np.mean(np.array(Pe), axis=0)
-
-time6 = time.time()
-print("lap計算までにかかった時間", time6 - time5, "sec")
-
-savedir = f"./results/csv/{timestamp}"
-os.makedirs(savedir,exist_ok=True)
-pd.DataFrame(lap[0]).to_csv(f"{savedir}/test_before_{ws_model_beta}.csv", index=False)
-
-
-# 全てのニューロングループに対してMSEの計算を行う
-results = []
-for i in range(neuron_group_count):
-    result = nk.entropy_multiscale(signal=np.array(lap[i]), scale=40, dimension=1)
-    results.append(result[1]["Values"])
-
-time7 = time.time()
-print("mse計算までにかかった時間", time7 - time6, "sec")
-
-pd.DataFrame(results).to_csv(f"{savedir}/test_{ws_model_beta}.csv", index=False)
-time8 = time.time()
-print("全体の処理時間", time8 - time0, "sec")
+print("全体の処理時間", time.time() - time0, "sec")
