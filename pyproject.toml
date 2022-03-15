@@ -6,17 +6,26 @@ authors = ["canonrock16 <canonrock0401@gmail.com>"]
 
 [tool.poetry.dependencies]
 python = "^3.8"
-Brian2 = "^2.5.0"
-smallworld = "^0.1.0"
-neurokit2 = "^0.1.7"
-tqdm = "^4.63.0"
+
+# jupyter
 jupyterlab = "^3.3.0"
 jupyterlab-vim = "^0.14.5"
 lckr-jupyterlab-variableinspector = "^3.0.9"
 jupyterlab-code-formatter = "^1.4.10"
+
+# formatter
 black = "^22.1.0"
 isort = "^5.10.1"
 flake8 = "^4.0.1"
+
+# spiking neural network
+Brian2 = "^2.5.0"
+smallworld = "^0.1.0"
+neurokit2 = "^0.1.7"
+
+
+tqdm = "^4.63.0"
+seaborn = "^0.11.2"
 
 [tool.poetry.dev-dependencies]
 

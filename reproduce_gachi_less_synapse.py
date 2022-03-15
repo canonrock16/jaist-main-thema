@@ -25,17 +25,12 @@ set_device("cpp_standalone", build_on_run=False)
 prefs.devices.cpp_standalone.openmp_threads = 64
 
 time0 = time.time()
-first_sim_ms = 100
-# first_sim_ms = 1000 * 1000
-second_sim_ms = 10
-# second_sim_ms = 100 * 1000
-third_sim_ms = 10
-# third_sim_ms = 100 * 1000
+first_sim_ms = 1000 * 1000
+second_sim_ms = 100 * 1000
+third_sim_ms = 100 * 1000
 
-# n = 1000  # number of neurons in one group
-n = 10  # number of neurons in one group
-# neuron_group_count = 100
-neuron_group_count = 10
+n = 1000  # number of neurons in one group
+neuron_group_count = 100
 
 ws_model_beta = 1.0
 timestamp = datetime.datetime.now().strftime("%Y–%m–%d_%H%M")
@@ -75,28 +70,14 @@ P = NeuronGroup(n * neuron_group_count, model=eqs, threshold="v>=30*mvolt", rese
 P.group = "i // n"  # 0 for the first 1000 neurons, then 1 for the next 1000 neurons, etc.
 P.is_excitatory = "(i % n) < int(R*n)"
 
-# excitatory neurons
-for i in range(neuron_group_count):
-    re = np.random.random(int(n * R))
-
-    Pe = P[sort(list(set(np.where(P.is_excitatory == True)[0]) & set(np.where(P.group == i)[0])))]
-    Pe.a = 0.02 / msecond
-    Pe.b = 0.2 / msecond
-    Pe.c = (-65 + 15 * re**2) * mvolt
-    Pe.d = (8 - 6 * re**2) * mvolt / msecond
-
-# inhibitory connections
-for i in range(neuron_group_count):
-    ri = np.random.random(round(n * (1 - R)))
-
-    Pi = P[sort(list(set(np.where(P.is_excitatory == False)[0]) & set(np.where(P.group == i)[0])))]
-    Pi.a = (0.02 + 0.08 * ri) / msecond
-    Pi.b = (0.25 - 0.05 * ri) / msecond
-    Pi.c = -65 * mvolt
-    Pi.d = 2 * mvolt / msecond
-
+# スタンドアローンモードではP.is_excitatoryの中身を実行前に知ることが出来ないので、以下のように設定せざるを得ない
+P.a = "( (int((i % n) < int(R*n)))*0.02 + (int((i % n) >= int(R*n)))*(0.02 + 0.08 * rand()) ) / msecond"
+P.b = "( (int((i % n) < int(R*n)))*0.2 + (int((i % n) >= int(R*n)))*(0.25 - 0.05 * rand()) ) / msecond"
+P.c = "( (int((i % n) < int(R*n)))*(-65 + 15*(rand()**2)) + (int((i % n) >= int(R*n)))*-65 ) * mvolt"
+P.d = "( (int((i % n) < int(R*n)))*(8 - 6*(rand()**2)) + (int((i % n) >= int(R*n)))*2 ) * mvolt/msecond"
 P.v = -65 * mvolt
-P.u = P.v * P.b
+# P.v * P.bをスタンドアローンモード風に指定
+P.u = "(-65 * mvolt) * ( (int((i % n) < int(R*n)))*0.2 + (int((i % n) >= int(R*n)))*(0.25 - 0.05 * rand()) ) / msecond"
 
 # 毎msごとに1つのneuronに電流が流れる
 stimulate_rate = 1 / (n * neuron_group_count)
