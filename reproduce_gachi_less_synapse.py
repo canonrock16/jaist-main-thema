@@ -4,7 +4,6 @@
 import time
 from collections import defaultdict
 
-# import matplotlib.pyplot as plt
 import neurokit2 as nk
 import numpy as np
 import pandas as pd
@@ -23,15 +22,20 @@ prefs.codegen.runtime.cython.multiprocess_safe = False
 
 # スタンドアローンモードへ
 set_device("cpp_standalone", build_on_run=False)
-prefs.devices.cpp_standalone.openmp_threads = 128
+prefs.devices.cpp_standalone.openmp_threads = 64
 
 time0 = time.time()
-first_sim_ms = 1000 * 1000
-second_sim_ms = 100 * 1000
-third_sim_ms = 100 * 1000
+first_sim_ms = 100
+# first_sim_ms = 1000 * 1000
+second_sim_ms = 10
+# second_sim_ms = 100 * 1000
+third_sim_ms = 10
+# third_sim_ms = 100 * 1000
 
-n = 1000  # number of neurons in one group
-neuron_group_count = 100
+# n = 1000  # number of neurons in one group
+n = 10  # number of neurons in one group
+# neuron_group_count = 100
+neuron_group_count = 10
 
 ws_model_beta = 1.0
 timestamp = datetime.datetime.now().strftime("%Y–%m–%d_%H%M")
@@ -68,30 +72,42 @@ R = 0.8  # ratio about excitory-inhibitory neurons
 # 各ニューロングループの生成
 # 30mvでスパイクが発生する。数値積分法はeuler
 P = NeuronGroup(n * neuron_group_count, model=eqs, threshold="v>=30*mvolt", reset=reset, method="euler")
-re = np.random.random(int(n * neuron_group_count))
-ri = np.random.random(round(n * neuron_group_count))
-
-# TODO:exiteとinhibitのパラメータを各々変更する
 P.group = "i // n"  # 0 for the first 1000 neurons, then 1 for the next 1000 neurons, etc.
 P.is_excitatory = "(i % n) < int(R*n)"
 
-# excitatory connections
-P.a = 0.02 / msecond  # 正
-P.b = 0.2 / msecond  # 正
-P.c = (15 * re ** 2 - 65) * mvolt
-P.d = (-6 * re ** 2 + 8) * mvolt / msecond
-P.I = 20 * mvolt / msecond  # 他が全部mVなのにこれだけvoltはおかしい /msecondじゃないと頻度が低すぎる
+# excitatory neurons
+for i in range(neuron_group_count):
+    re = np.random.random(int(n * R))
+
+    Pe = P[sort(list(set(np.where(P.is_excitatory == True)[0]) & set(np.where(P.group == i)[0])))]
+    Pe.a = 0.02 / msecond
+    Pe.b = 0.2 / msecond
+    Pe.c = (-65 + 15 * re**2) * mvolt
+    Pe.d = (8 - 6 * re**2) * mvolt / msecond
 
 # inhibitory connections
-P.a["not is_excitatory"] = 0.1 * 1 / msecond
-P.b["not is_excitatory"] = 0.2 * 1/msecond
-P.c["not is_excitatory"] =  - 65*mvolt
-P.d["not is_excitatory"] = 2 * mvolt / msecond
-P.I["not is_excitatory"] = 20 * mvolt / msecond
+for i in range(neuron_group_count):
+    ri = np.random.random(round(n * (1 - R)))
+
+    Pi = P[sort(list(set(np.where(P.is_excitatory == False)[0]) & set(np.where(P.group == i)[0])))]
+    Pi.a = (0.02 + 0.08 * ri) / msecond
+    Pi.b = (0.25 - 0.05 * ri) / msecond
+    Pi.c = -65 * mvolt
+    Pi.d = 2 * mvolt / msecond
+
+P.v = -65 * mvolt
+P.u = P.v * P.b
+
+# 毎msごとに1つのneuronに電流が流れる
+stimulate_rate = 1 / (n * neuron_group_count)
+P.run_regularly(
+f"""
+I = int({stimulate_rate}>rand())*20 * mvolt / msecond
+""",
+    dt=1 * ms,
+)
 
 
-
-# TODO:exiteとinhibitでclipの所を変える
 Ce = Synapses(
         P,
         P,
@@ -178,7 +194,6 @@ net.run(first_sim_ms * ms, report="stdout")
 time3 = time.time()
 print("最初の千秒までにかかった時間", time3 - time2, "sec")
 
-
 # STDPの設定を外す
 Ce.pre.code = "v_post +=w* mV"
 Ci.post.code = ""
@@ -189,20 +204,16 @@ net.run(second_sim_ms * ms, report="stdout")
 time4 = time.time()
 print("次の100秒までにかかった時間", time4 - time3, "sec")
 
-
 # inputの設定を外す
-new_I = array([0.0 for i in range(n * neuron_group_count)])
-P.I = new_I * volt / second
+P.contained_objects.pop(-1)
 
 V = StateMonitor(P, "v", record=True)
 S = SpikeMonitor(P)
-
 net.add(V)
 net.add(S)
 
 # 100秒動かす
 net.run(third_sim_ms * ms, report="stdout")
-
 
 time5 = time.time()
 print("次の100秒までにかかった時間", time5 - time4, "sec")
